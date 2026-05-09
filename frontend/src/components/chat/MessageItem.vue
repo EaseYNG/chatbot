@@ -1,8 +1,13 @@
 <template>
   <div class="msg-wrapper" :class="message.role">
-    <div class="msg-role-label">{{ roleLabel }}</div>
+    <div v-if="message.role !== 'status'" class="msg-role-label">{{ roleLabel }}</div>
     <div class="msg-content">
-      <div v-if="message.role === 'tool'" class="tool-block">
+      <div v-if="message.role === 'status'" class="status-block" :class="message.state">
+        <span v-if="message.state === 'running'" class="status-spinner"></span>
+        <span v-else class="status-done-mark">&#10003;</span>
+        <span class="status-label">{{ message.label }}</span>
+      </div>
+      <div v-else-if="message.role === 'tool'" class="tool-block">
         <div class="tool-badge" :class="message.status || 'done'">
           <span class="tool-icon">&#9881;</span>
           <span>{{ message.tool_name }}</span>
@@ -159,6 +164,46 @@ const roleLabel = computed(() => {
 .markdown-body :deep(.hljs-comment) { color: #6a9955; }
 .markdown-body :deep(.hljs-function) { color: #dcdcaa; }
 .markdown-body :deep(.hljs-number) { color: #b5cea8; }
+
+.status-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+  color: #888;
+}
+
+.status-block.running {
+  color: #8ab4f8;
+}
+
+.status-block.done {
+  color: #5a8a5a;
+}
+
+.status-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #3a3a5a;
+  border-top-color: #6080c0;
+  border-radius: 50%;
+  animation: status-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes status-spin {
+  to { transform: rotate(360deg); }
+}
+
+.status-done-mark {
+  color: #5a8a5a;
+  font-size: 12px;
+}
+
+.status-label {
+  line-height: 1.4;
+}
 
 .tool-badge {
   display: inline-flex;

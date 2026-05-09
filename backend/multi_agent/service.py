@@ -51,39 +51,112 @@ class MultiAgentService:
                 final_state = state
                 yielded_traces = set()
 
-                # 使用 astream_events 来捕获流式输出和状态更新
+                # node name → stage key 映射，用于立即发送 stage_start
+                NODE_STAGE_MAP = {
+                    "init": "INIT",
+                    "input": "INPUT",
+                    "complexity": "COMPLEXITY",
+                    "route": "ROUTING",
+                    "execute_react": "EXECUTION",
+                    "execute_plan": "EXECUTION",
+                    "execute_workflow": "EXECUTION",
+                    "output": "OUTPUT",
+                    "quality": "QUALITY",
+                }
+
+                stage_labels = {
+                    "INIT": "初始化",
+                    "INPUT": "意图识别",
+                    "COMPLEXITY": "复杂度评估",
+                    "ROUTING": "执行路由",
+                    "EXECUTION": "执行",
+                    "OUTPUT": "输出整合",
+                    "QUALITY": "质量检查",
+                }
+
+                # 使用 astream_events v2 捕获所有运行时事件
+                # 事件类型参考: https://langchain-ai.github.io/langgraph/how-tos/streaming-events-from-within-tools/
                 async for event in self.graph.graph.astream_events(
                     state, config, version="v2"
                 ):
                     kind = event.get("event")
-                    
-                    # 1. 捕获最终答案的 token (来自 output 节点，带有 output_synthesis 标签)
-                    if kind == "on_chat_model_stream":
+                    name = event.get("name", "")
+                    data = event.get("data", {})
+
+                    # ── Graph Node 启动 → stage_start ──
+                    if kind == "on_chain_start":
+                        stage_key = NODE_STAGE_MAP.get(name)
+                        if stage_key:
+                            dedup_key = f"stage_start:{stage_key}"
+                            if dedup_key not in yielded_traces:
+                                yielded_traces.add(dedup_key)
+                                yield _sse("stage_start", {
+                                    "stage": stage_key,
+                                    "label": stage_labels.get(stage_key, stage_key),
+                                })
+
+                    # ── 工具调用开始 ──
+                    elif kind == "on_tool_start":
+                        tool_name = name
+                        tool_input = data.get("input", {})
+                        # 序列化 tool input 以便前端展示
+                        try:
+                            tool_input_str = json.dumps(tool_input, ensure_ascii=False, default=str)
+                        except Exception:
+                            tool_input_str = str(tool_input)
+                        yield _sse("tool_start", {
+                            "tool_name": tool_name,
+                            "tool_input": tool_input_str,
+                        })
+
+                    # ── 工具调用结束 ──
+                    elif kind == "on_tool_end":
+                        tool_name = name
+                        tool_output = data.get("output", "")
+                        yield _sse("tool_end", {
+                            "tool_name": tool_name,
+                            "tool_output": str(tool_output),
+                        })
+
+                    # ── LLM token 流式输出（仅用户可见的输出内容） ──
+                    elif kind == "on_chat_model_stream":
                         tags = event.get("tags", [])
                         if "output_synthesis" in tags:
-                            content = event["data"]["chunk"].content
+                            content = data["chunk"].content
                             if content:
                                 yield _sse("token", {"content": content})
 
-                    # 2. 捕获状态更新中的 trace
-                    elif kind == "on_chain_update":
-                        # 状态更新时，提取新增的 trace
-                        # astream_events 的 on_chain_update output 包含该步骤产生的 delta
-                        new_trace = event["data"].get("output", {}).get("trace", [])
-                        if return_trace and new_trace:
-                            for item in new_trace:
-                                # 使用 id 或内容摘要来避免重复 yield (因为 trace 是 Annotated add)
-                                # 在 astream_events 中通常只给 delta，但以防万一
-                                trace_key = json.dumps(item, sort_keys=True)
-                                if trace_key not in yielded_traces:
-                                    yielded_traces.add(trace_key)
+                    # ── Graph Node 完成 → trace 事件 + stage_end ──
+                    elif kind == "on_chain_end":
+                        # 整个 Graph 结束 → 捕获最终状态
+                        if name == "LangGraph":
+                            final_state = data["output"]
+
+                        # Graph Node 结束 → trace 事件 + stage_end
+                        elif return_trace:
+                            node_output = data.get("output", {})
+                            if isinstance(node_output, dict):
+                                new_trace = node_output.get("trace", [])
+                                for item in new_trace:
                                     payload = dict(item)
                                     event_type = payload.pop("type", "trace")
-                                    yield _sse(event_type, payload)
+                                    # stage_start/stage_end 已由 on_chain_start/end 实时发送
+                                    if event_type in ("stage_start", "stage_end"):
+                                        continue
+                                    dedup_key = json.dumps(item, sort_keys=True)
+                                    if dedup_key not in yielded_traces:
+                                        yielded_traces.add(dedup_key)
+                                        yield _sse(event_type, payload)
 
-                    # 3. 捕获整个 Graph 结束时的状态
-                    elif kind == "on_chain_end" and event.get("name") == "LangGraph":
-                        final_state = event["data"]["output"]
+                            stage_key = NODE_STAGE_MAP.get(name)
+                            if stage_key:
+                                dedup_key = f"stage_end:{stage_key}"
+                                if dedup_key not in yielded_traces:
+                                    yielded_traces.add(dedup_key)
+                                    yield _sse("stage_end", {
+                                        "stage": stage_key,
+                                        "label": stage_labels.get(stage_key, stage_key),
+                                    })
 
                 # 检查质量
                 if final_state.get("quality_passed", False):

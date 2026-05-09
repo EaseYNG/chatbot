@@ -1,14 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(conda activate *)",
-      "Bash(pip install *)",
-      "Bash(python -m pytest tests/ -v)",
-      "Bash(where conda *)",
-      "Read(//c/Users/Void/**)",
-      "Read(//c/ProgramData/**)",
-      "Bash(curl -s -N -X POST http://localhost:8000/api/chat -H \"Content-Type: application/json\" -d \"{\\\\\"message\\\\\": \\\\\"hello, say hi in one word\\\\\", \\\\\"return_trace\\\\\": true}\")",
-      "Bash(curl -s -N -X POST http://localhost:8000/api/chat -H \"Content-Type: application/json\" -d \"{\\\\\"message\\\\\": \\\\\"请分步骤对比分析微服务架构和单体架构的技术选型，写出评估方案并总结核心结论\\\\\", \\\\\"return_trace\\\\\": true}\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('backend/multi_agent/service.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -m pytest tests/ -x -q)",
+      "Bash(npx vite *)"
     ]
   }
 }
