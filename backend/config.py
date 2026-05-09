@@ -7,7 +7,7 @@ load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEEPSEEK_MODEL = "deepseek-chat"
 DEEPSEEK_TEMPERATURE = 0.7
 
 FILES_DIR = os.path.join(PROJECT_ROOT, "files")

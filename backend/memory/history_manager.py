@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
@@ -39,8 +40,13 @@ class HistoryManager:
 
     def load(self) -> list:
         try:
+            if not os.path.exists(self.path) or os.path.getsize(self.path) == 0:
+                return []
             with open(self.path, mode="r", encoding="utf-8") as f:
-                data = json.loads(f.read())
+                content = f.read().strip()
+                if not content:
+                    return []
+                data = json.loads(content)
                 if not isinstance(data, list):
                     data = []
         except Exception as e:

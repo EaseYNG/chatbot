@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from typing import Any
@@ -13,6 +14,8 @@ from backend.multi_agent.enums import ExecutionMode, IntentType, Stage
 from backend.multi_agent.registry import AGENT_REGISTRY, get_agent_profile
 from backend.multi_agent.state import OrchestratorState, validate_plan_steps
 from backend.tools import get_tools_by_names
+
+logger = logging.getLogger(__name__)
 
 
 def _trace(event_type: str, **payload: Any) -> dict:
@@ -71,8 +74,9 @@ def _build_history_prompt(history: list[dict]) -> str:
 
 
 class MultiAgentGraph:
-    def __init__(self, *, history_manager, max_retries: int = 2):
+    def __init__(self, *, history_manager, checkpointer=None, max_retries: int = 2):
         self.history_manager = history_manager
+        self.checkpointer = checkpointer
         self.max_retries = max_retries
         self.graph = self._build_graph()
 
@@ -120,7 +124,20 @@ class MultiAgentGraph:
         }
 
     async def run(self, state: OrchestratorState) -> OrchestratorState:
-        return await self.graph.ainvoke(state)
+        try:
+            return await self.graph.ainvoke(
+                state, {"configurable": {"thread_id": state["thread_id"]}}
+            )
+        except Exception as e:
+            logger.error("Error running MultiAgentGraph: %s", str(e), exc_info=True)
+            # 尝试返回一个包含错误信息的 state，而不是直接抛出异常
+            state["errors"] = state.get("errors", []) + [{"message": str(e)}]
+            state["current_stage"] = Stage.DONE.value
+            state["quality_passed"] = False
+            state["trace"] = state.get("trace", []) + [
+                _trace("error", message=str(e))
+            ]
+            return state
 
     def _build_graph(self):
         graph = StateGraph(OrchestratorState)
@@ -152,7 +169,7 @@ class MultiAgentGraph:
         graph.add_edge("execute_workflow", "output")
         graph.add_edge("output", "quality")
         graph.add_edge("quality", END)
-        return graph.compile()
+        return graph.compile(checkpointer=self.checkpointer)
 
     def execution_router(self, state: OrchestratorState) -> str:
         mode = state.get("execution_mode", ExecutionMode.REACT.value)
@@ -290,10 +307,12 @@ class MultiAgentGraph:
         task_text: str,
         history: list[dict],
         extra_context: str = "",
+        streaming: bool = False,
+        tags: list[str] | None = None,
     ) -> str:
         profile = get_agent_profile(agent_name)
         agent = create_agent(
-            model=build_chat_llm(streaming=False),
+            model=build_chat_llm(streaming=streaming),
             tools=get_tools_by_names(profile.get("tools")),
         )
         prompt = profile["system_prompt"]
@@ -307,7 +326,8 @@ class MultiAgentGraph:
                     {"role": "system", "content": f"Conversation history:\n{_build_history_prompt(history)}"},
                     {"role": "user", "content": task_text},
                 ]
-            }
+            },
+            config={"tags": tags} if tags else None,
         )
         return _extract_ai_content(result)
 
@@ -318,6 +338,8 @@ class MultiAgentGraph:
             agent_name=agent_name,
             task_text=state["user_input"],
             history=history,
+            streaming=True,
+            tags=["output_synthesis"],
         )
         return {
             "current_stage": Stage.EXECUTION.value,
@@ -493,6 +515,8 @@ class MultiAgentGraph:
             agent_name=agent_name,
             task_text=state["user_input"],
             history=history,
+            streaming=True,
+            tags=["output_synthesis"],
         )
         return {
             "current_stage": Stage.EXECUTION.value,
@@ -519,7 +543,7 @@ class MultiAgentGraph:
         if state.get("execution_mode") == ExecutionMode.REACT.value:
             final_answer = state.get("step_results", [{}])[-1].get("output", "")
         else:
-            llm = build_chat_llm(streaming=False, enable_thinking=True)
+            llm = build_chat_llm(streaming=True, enable_thinking=True)
             combined = "\n\n".join(
                 f"{item.get('title', 'Step')}: {item.get('output', '')}" for item in state.get("step_results", [])
             )
@@ -536,7 +560,8 @@ class MultiAgentGraph:
                         "role": "user",
                         "content": f"Original request:\n{state['user_input']}\n\nStep results:\n{combined}",
                     },
-                ]
+                ],
+                config={"tags": ["output_synthesis"]},
             )
             final_answer = str(getattr(response, "content", "") or "")
 

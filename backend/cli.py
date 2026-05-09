@@ -10,7 +10,7 @@ class CLIChat:
         self.bot = ChatBot(
             tools=get_all_tools(),
             history_manager=self.history,
-            checkpointer=CheckpointerProvider().get(),
+            checkpointer=CheckpointerProvider().get_sync(),
         )
 
     def run(self, chat_id: int = 0, sys_msg: str = DEFAULT_SYSTEM_PROMPT):
