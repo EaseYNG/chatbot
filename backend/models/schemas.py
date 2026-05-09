@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
@@ -13,6 +13,9 @@ class ChatRequest(BaseModel):
     thread_id: Optional[int] = None
     message: str
     system_message: str = "You are a helpful assistant."
+    mode_hint: Optional[str] = None
+    agent_hint: Optional[str] = None
+    return_trace: bool = True
 
 
 class ConversationMeta(BaseModel):
@@ -27,3 +30,4 @@ class ConversationDetail(BaseModel):
     thread_id: int
     title: str
     messages: list[MessageDict]
+    meta: dict = Field(default_factory=dict)

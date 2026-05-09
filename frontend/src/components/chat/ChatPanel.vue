@@ -7,6 +7,8 @@
       <span v-else class="chat-title new-chat">New Conversation</span>
     </div>
 
+    <WorkflowTimeline />
+
     <div class="chat-body">
       <MessageList
         :messages="chatStore.messages"
@@ -36,6 +38,7 @@ import { useChatStore } from '../../stores/chat.js'
 import { useConversationsStore } from '../../stores/conversations.js'
 import MessageList from './MessageList.vue'
 import ChatInput from './ChatInput.vue'
+import WorkflowTimeline from './WorkflowTimeline.vue'
 
 const chatStore = useChatStore()
 const conversations = useConversationsStore()

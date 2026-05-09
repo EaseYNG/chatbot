@@ -3,6 +3,7 @@ from backend.config import HISTORY_FILE
 from backend.tools import get_all_tools
 from backend.memory import HistoryManager, CheckpointerProvider
 from backend.agent import ChatBot
+from backend.multi_agent import MultiAgentService
 
 
 @lru_cache()
@@ -22,3 +23,8 @@ def get_chatbot() -> ChatBot:
         history_manager=get_history_manager(),
         checkpointer=get_checkpointer_provider().get(),
     )
+
+
+@lru_cache()
+def get_multi_agent_service() -> MultiAgentService:
+    return MultiAgentService(history_manager=get_history_manager())

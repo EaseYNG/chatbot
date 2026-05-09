@@ -2,9 +2,10 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from backend.models.schemas import ChatRequest, ConversationMeta, ConversationDetail
-from backend.agent import chat_stream_generator, ChatBot
+from backend.agent import ChatBot
 from backend.memory.history_manager import HistoryManager
-from backend.api.dependencies import get_chatbot, get_history_manager
+from backend.api.dependencies import get_chatbot, get_history_manager, get_multi_agent_service
+from backend.multi_agent import MultiAgentService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -13,18 +14,19 @@ router = APIRouter()
 @router.post("/chat")
 async def stream_chat(
     req: ChatRequest,
-    chatbot: ChatBot = Depends(get_chatbot),
+    service: MultiAgentService = Depends(get_multi_agent_service),
     history: HistoryManager = Depends(get_history_manager),
 ):
     thread_id = req.thread_id if req.thread_id else history.current_id
 
     return StreamingResponse(
-        chat_stream_generator(
-            chatbot=chatbot,
+        service.stream_chat(
             chat_id=thread_id,
             user_msg=req.message,
             sys_msg=req.system_message,
-            history_manager=history,
+            mode_hint=req.mode_hint,
+            agent_hint=req.agent_hint,
+            return_trace=req.return_trace,
         ),
         media_type="text/event-stream",
         headers={
@@ -61,6 +63,7 @@ async def get_conversation(
         thread_id=conv["thread_id"],
         title=conv.get("title", ""),
         messages=messages,
+        meta=conv.get("meta", {}),
     )
 
 

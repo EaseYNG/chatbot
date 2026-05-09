@@ -10,6 +10,7 @@ class History(BaseModel):
     created_at: str = ""
     updated_at: str = ""
     messages: list = Field(default_factory=list, description="对话消息列表")
+    meta: dict = Field(default_factory=dict, description="对话元信息")
 
 
 class HistoryManager:
@@ -49,7 +50,6 @@ class HistoryManager:
 
     def add(self, chat_id: int, msgs: list):
         """序列化消息并覆盖写入对应对话"""
-        now = datetime.now(timezone.utc).isoformat()
         msg_list = []
         for msg in msgs:
             one = msg.model_dump()
@@ -72,15 +72,22 @@ class HistoryManager:
                 msg_list.append(entry)
             else:
                 msg_list.append({"role": one["type"], "content": one["content"]})
+        self.save_conversation(chat_id, messages=msg_list)
+
+    def save_conversation(self, chat_id: int, messages: list[dict], meta: dict | None = None):
+        """覆盖写入已序列化消息，并可附带对话元信息。"""
+        now = datetime.now(timezone.utc).isoformat()
 
         # 自动生成标题：取第一条用户消息前 30 字
-        first_user = next((m["content"] for m in msg_list if m.get("role") in ("human", "user")), None)
+        first_user = next((m["content"] for m in messages if m.get("role") in ("human", "user")), None)
         title = (first_user[:30] + "...") if (first_user and len(first_user) > 30) else (first_user or "New Chat")
 
         idx = self._find_index(chat_id)
         if idx is not None:
-            self.history_list[idx]["messages"] = msg_list
+            self.history_list[idx]["messages"] = messages
             self.history_list[idx]["updated_at"] = now
+            if meta is not None:
+                self.history_list[idx]["meta"] = meta
             # 标题保持不变（首次生成后不覆盖）
         else:
             entry = History(
@@ -88,11 +95,13 @@ class HistoryManager:
                 title=title,
                 created_at=now,
                 updated_at=now,
-                messages=msg_list,
+                messages=messages,
+                meta=meta or {},
             ).model_dump()
             self.history_list.append(entry)
             if chat_id >= self.current_id:
                 self.current_id = chat_id + 1
+        self.update()
 
     def get(self, chat_id: int) -> list[dict]:
         idx = self._find_index(chat_id)

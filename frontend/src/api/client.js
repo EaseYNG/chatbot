@@ -29,13 +29,19 @@ export async function deleteConversation(id) {
   return res.json()
 }
 
-export async function* streamChat(threadId, message) {
+export async function* streamChat(threadId, message, options = {}) {
   let res
   try {
     res = await fetch(`${BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ thread_id: threadId, message }),
+      body: JSON.stringify({
+        thread_id: threadId,
+        message,
+        mode_hint: options.modeHint || null,
+        agent_hint: options.agentHint || null,
+        return_trace: options.returnTrace ?? true,
+      }),
     })
   } catch (e) {
     throw new Error(`Network error: ${e.message}`)

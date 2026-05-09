@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { streamChat } from '../api/client.js'
 import { useConversationsStore } from './conversations.js'
 
@@ -7,6 +7,15 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref([])
   const isStreaming = ref(false)
   const errorMessage = ref('')
+  const workflowEvents = ref([])
+
+  const convStore = useConversationsStore()
+  watch(() => convStore.activeId, () => {
+    if (isStreaming.value) {
+      isStreaming.value = false
+    }
+    errorMessage.value = ''
+  })
 
   function appendToLastMessage(content) {
     const last = messages.value[messages.value.length - 1]
@@ -21,6 +30,10 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.push({ role, content, ...extra })
   }
 
+  function addWorkflowEvent(kind, payload = {}) {
+    workflowEvents.value.push({ kind, ...payload })
+  }
+
   function setMessages(msgs) {
     messages.value = msgs
   }
@@ -28,19 +41,20 @@ export const useChatStore = defineStore('chat', () => {
   function clearMessages() {
     messages.value = []
     errorMessage.value = ''
+    workflowEvents.value = []
   }
 
   async function sendMessage(text) {
     if (!text.trim() || isStreaming.value) return
 
     errorMessage.value = ''
+    workflowEvents.value = []
     addMessage('human', text)
 
     const convStore = useConversationsStore()
     const threadId = convStore.activeId
     const isNewConv = !threadId
 
-    addMessage('ai', '')
     isStreaming.value = true
 
     try {
@@ -72,12 +86,53 @@ export const useChatStore = defineStore('chat', () => {
           }
 
           case 'done':
+            addWorkflowEvent('done', event)
             if (isNewConv && event.thread_id) {
               convStore.setActiveId(event.thread_id)
               convStore.fetchList()
             } else if (isNewConv) {
               convStore.fetchList()
             }
+            break
+
+          case 'stage_start':
+            addWorkflowEvent('stage_start', event)
+            break
+
+          case 'stage_end':
+            addWorkflowEvent('stage_end', event)
+            break
+
+          case 'route':
+            addWorkflowEvent('route', event)
+            break
+
+          case 'plan':
+            addWorkflowEvent('plan', event)
+            break
+
+          case 'step_start':
+            addWorkflowEvent('step_start', event)
+            break
+
+          case 'step_end':
+            addWorkflowEvent('step_end', event)
+            break
+
+          case 'agent_start':
+            addWorkflowEvent('agent_start', event)
+            break
+
+          case 'agent_end':
+            addWorkflowEvent('agent_end', event)
+            break
+
+          case 'quality':
+            addWorkflowEvent('quality', event)
+            break
+
+          case 'warning':
+            addWorkflowEvent('warning', event)
             break
 
           case 'error':
@@ -99,6 +154,7 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     isStreaming,
     errorMessage,
+    workflowEvents,
     addMessage,
     setMessages,
     clearMessages,

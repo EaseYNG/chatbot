@@ -12,6 +12,7 @@ DEEPSEEK_TEMPERATURE = 0.7
 
 FILES_DIR = os.path.join(PROJECT_ROOT, "files")
 HISTORY_FILE = os.path.join(PROJECT_ROOT, "memory", "long_history.json")
+CHECKPOINT_DB = os.path.join(PROJECT_ROOT, "memory", "checkpoints.sqlite")
 
 os.makedirs(FILES_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)

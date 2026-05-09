@@ -1,13 +1,7 @@
-from langchain_deepseek import ChatDeepSeek
 from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
-from backend.config import (
-    DEEPSEEK_API_KEY,
-    DEEPSEEK_BASE_URL,
-    DEEPSEEK_MODEL,
-    DEEPSEEK_TEMPERATURE,
-    DEFAULT_SYSTEM_PROMPT,
-)
+from backend.config import DEFAULT_SYSTEM_PROMPT
+from backend.agent.llm_factory import build_chat_llm
 from backend.memory.history_manager import HistoryManager
 
 
@@ -21,14 +15,7 @@ class ChatBot:
         checkpointer: MemorySaver,
     ):
         self.history_manager = history_manager
-        llm = ChatDeepSeek(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_BASE_URL,
-            model=DEEPSEEK_MODEL,
-            temperature=DEEPSEEK_TEMPERATURE,
-            streaming=True,
-            extra_body={"thinking": {"type": "disabled"}},
-        )
+        llm = build_chat_llm(streaming=True)
         self._agent = create_agent(model=llm, tools=tools, checkpointer=checkpointer)
 
     def _build_messages(self, chat_id: int, sys_msg: str, user_msg: str) -> list:

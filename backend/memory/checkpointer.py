@@ -1,11 +1,12 @@
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
+from backend.config import CHECKPOINT_DB
 
 
 class CheckpointerProvider:
-    """MemorySaver 单例封装，确保 Agent 使用同一检查点实例"""
+    """SqliteSaver 封装，确保 Agent 状态持久化"""
 
     def __init__(self):
-        self._memory = MemorySaver()
+        self._memory = SqliteSaver.from_conn_string(CHECKPOINT_DB)
 
-    def get(self) -> MemorySaver:
+    def get(self) -> SqliteSaver:
         return self._memory
