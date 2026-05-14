@@ -18,6 +18,14 @@ from backend.tools import get_tools_by_names
 logger = logging.getLogger(__name__)
 
 
+# Agent cache: key = "agent_name:streaming:tool_names" -> compiled agent
+_agent_cache: dict[str, Any] = {}
+
+
+def _get_agent_cache_key(agent_name: str, streaming: bool, tool_names: list[str]) -> str:
+    return f"{agent_name}:{streaming}:{','.join(sorted(tool_names))}"
+
+
 def _trace(event_type: str, **payload: Any) -> dict:
     return {"type": event_type, **payload}
 
@@ -245,22 +253,49 @@ class MultiAgentGraph:
             ],
         }
 
-    def complexity_node(self, state: OrchestratorState) -> dict:
+    async def complexity_node(self, state: OrchestratorState) -> dict:
         score = 10
         user_input = state["user_input"]
-        required_tools = state.get("required_tools", [])
-
-        score += min(len(required_tools) * 10, 20)
-        if any(keyword in user_input for keyword in ("步骤", "计划", "方案", "分解")):
-            score += 15
-        if any(keyword in user_input for keyword in ("结合历史", "继续上次", "基于之前")):
-            score += 10
-        if any(keyword in user_input for keyword in ("对比", "评估", "权衡", "trade-off")):
-            score += 15
-        if any(keyword in user_input for keyword in ("多个", "协作", "workflow", "multi-agent")):
-            score += 20
-
         mode = state.get("execution_mode", ExecutionMode.REACT.value)
+
+        # LLM-based assessment, fall back to keywords on failure
+        try:
+            llm = build_chat_llm(streaming=False)
+            response = await llm.ainvoke([
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a task complexity assessor. Analyze the user request and "
+                        "return JSON only with:\n"
+                        '- "score": integer 10-100\n'
+                        '- "mode": "REACT", "PLAN_EXECUTE", or "WORKFLOW"\n'
+                        "Guidelines: REACT (10-30) for simple Q&A, "
+                        "PLAN_EXECUTE (31-60) for multi-step tasks, "
+                        "WORKFLOW (61-100) for cross-domain collaboration."
+                    ),
+                },
+                {"role": "user", "content": f"User request: {user_input}"},
+            ])
+            content = str(getattr(response, "content", "") or "")
+            data = _extract_json_block(content)
+            score = max(10, min(100, int(data.get("score", 10))))
+            llm_mode = str(data.get("mode", "REACT")).strip().upper()
+            if llm_mode in {m.value for m in ExecutionMode}:
+                mode = llm_mode
+        except Exception:
+            logger.debug("LLM complexity assessment failed, falling back to keywords")
+            required_tools = state.get("required_tools", [])
+            score += min(len(required_tools) * 10, 20)
+            if any(kw in user_input for kw in ("步骤", "计划", "方案", "分解")):
+                score += 15
+            if any(kw in user_input for kw in ("结合历史", "继续上次", "基于之前")):
+                score += 10
+            if any(kw in user_input for kw in ("对比", "评估", "权衡", "trade-off")):
+                score += 15
+            if any(kw in user_input for kw in ("多个", "协作", "workflow", "multi-agent")):
+                score += 20
+
+        # Mode override on first attempt only (if still REACT)
         if state.get("retry_count", 0) == 0 and mode == ExecutionMode.REACT.value:
             if score >= 55:
                 mode = ExecutionMode.WORKFLOW.value
@@ -311,10 +346,15 @@ class MultiAgentGraph:
         tags: list[str] | None = None,
     ) -> str:
         profile = get_agent_profile(agent_name)
-        agent = create_agent(
-            model=build_chat_llm(streaming=streaming),
-            tools=get_tools_by_names(profile.get("tools")),
-        )
+        tool_names = profile.get("tools") or []
+        cache_key = _get_agent_cache_key(agent_name, streaming, tool_names)
+        if cache_key not in _agent_cache:
+            _agent_cache[cache_key] = create_agent(
+                model=build_chat_llm(streaming=streaming),
+                tools=get_tools_by_names(tool_names),
+                checkpointer=self.checkpointer,
+            )
+        agent = _agent_cache[cache_key]
         prompt = profile["system_prompt"]
         if extra_context:
             prompt = f"{prompt}\n\nAdditional context:\n{extra_context}"
@@ -332,7 +372,7 @@ class MultiAgentGraph:
         return _extract_ai_content(result)
 
     async def execute_react_node(self, state: OrchestratorState) -> dict:
-        history = self.history_manager.get(state["thread_id"])
+        history = await self.history_manager.get(state["thread_id"])
         agent_name = state["selected_agent"]
         answer = await self._run_agent(
             agent_name=agent_name,
@@ -366,7 +406,7 @@ class MultiAgentGraph:
         except ValueError as e:
             return await self._fallback_react(state, str(e))
 
-        history = self.history_manager.get(state["thread_id"])
+        history = await self.history_manager.get(state["thread_id"])
         step_results = []
         trace = [
             _trace("stage_start", stage=Stage.EXECUTION.value, label="计划执行"),
@@ -405,7 +445,7 @@ class MultiAgentGraph:
         except ValueError as e:
             return await self._fallback_react(state, str(e))
 
-        history = self.history_manager.get(state["thread_id"])
+        history = await self.history_manager.get(state["thread_id"])
         step_results = []
         trace = [
             _trace("stage_start", stage=Stage.EXECUTION.value, label="多 Agent 工作流"),
@@ -448,6 +488,7 @@ class MultiAgentGraph:
         }
 
     async def _plan_steps(self, state: OrchestratorState, *, workflow: bool) -> list[dict]:
+        """Planer"""
         llm = build_chat_llm(streaming=False, enable_thinking=True)
         selected_agent = state["selected_agent"]
         mode_label = "workflow" if workflow else "plan_execute"
@@ -509,7 +550,7 @@ class MultiAgentGraph:
         raise ValueError(f"Planner failed to produce valid steps for mode={mode_label}. Last error: {last_error}")
 
     async def _fallback_react(self, state: OrchestratorState, reason: str) -> dict:
-        history = self.history_manager.get(state["thread_id"])
+        history = await self.history_manager.get(state["thread_id"])
         agent_name = state["selected_agent"]
         answer = await self._run_agent(
             agent_name=agent_name,
@@ -574,11 +615,51 @@ class MultiAgentGraph:
             ],
         }
 
-    def quality_node(self, state: OrchestratorState) -> dict:
-        score = 85 if state.get("final_answer") else 20
-        if state.get("errors"):
-            score -= 20
-        passed = score >= 60
+    async def quality_node(self, state: OrchestratorState) -> dict:
+        """Answer quality check node"""
+        if not state.get("final_answer"):
+            score = 20
+            passed = False
+        else:
+            # LLM-based quality assessment, fall back to heuristic on failure
+            try:
+                llm = build_chat_llm(streaming=False)
+                response = await llm.ainvoke([
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a quality evaluator. Score the assistant's response on:\n"
+                            '- "completeness": 0-40 (does it fully address the request?)\n'
+                            '- "accuracy": 0-30 (is the information well-reasoned?)\n'
+                            '- "clarity": 0-30 (is it well-structured and clear?)\n'
+                            "Return JSON only with these three fields. "
+                            "Total score < 60 means fail."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Original request: {state['user_input']}\n\n"
+                            f"Assistant response: {state['final_answer']}"
+                        ),
+                    },
+                ])
+                content = str(getattr(response, "content", "") or "")
+                data = _extract_json_block(content)
+                score = (
+                    int(data.get("completeness", 0))
+                    + int(data.get("accuracy", 0))
+                    + int(data.get("clarity", 0))
+                )
+                score = max(0, min(100, score))
+            except Exception:
+                logger.debug("LLM quality assessment failed, using heuristic")
+                score = 80
+
+            if state.get("errors"):
+                score = max(score - 20, 0)
+            passed = score >= 60
+
         return {
             "current_stage": Stage.DONE.value,
             "quality_score": score,

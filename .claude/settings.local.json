@@ -3,7 +3,14 @@
     "allow": [
       "Bash(python -c \"import ast; ast.parse\\(open\\('backend/multi_agent/service.py'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
       "Bash(python -m pytest tests/ -x -q)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(python -m pytest tests/ -x -v)",
+      "Bash(python *)",
+      "Bash(conda init *)",
+      "Bash(conda activate *)",
+      "Bash(E:/env/miniconda3/Scripts/conda.exe run *)",
+      "Bash(curl *)",
+      "Bash(taskkill /F /IM python.exe)"
     ]
   }
 }

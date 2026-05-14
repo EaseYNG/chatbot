@@ -56,11 +56,18 @@ const roleLabel = computed(() => {
 
 <style scoped>
 .msg-wrapper {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 12px 24px;
+  padding: 12px 48px;
   display: flex;
   gap: 12px;
+}
+
+.msg-wrapper:not(.status) {
+  animation: msg-in 0.18s ease-out;
+}
+
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .msg-wrapper.human { background: #1e1e3a; }
@@ -68,21 +75,25 @@ const roleLabel = computed(() => {
 .msg-wrapper.tool  { background: #1a1a1a; border-left: 3px solid #6a6a30; }
 
 .msg-role-label {
-  width: 72px;
-  min-width: 72px;
-  font-size: 12px;
-  font-weight: 600;
+  width: 64px;
+  min-width: 64px;
+  font-size: 11px;
+  font-weight: 700;
   color: #888;
   text-transform: uppercase;
-  padding-top: 2px;
+  letter-spacing: 0.5px;
+  padding-top: 3px;
   text-align: right;
 }
+
+.msg-wrapper.human .msg-role-label { color: #7aacf0; }
+.msg-wrapper.ai .msg-role-label    { color: #b890e0; }
 
 .msg-content { flex: 1; min-width: 0; }
 
 .text-content {
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.7;
   color: #d0d0e0;
   white-space: pre-wrap;
   word-break: break-word;
@@ -97,68 +108,110 @@ const roleLabel = computed(() => {
 .markdown-body {
   white-space: normal;
 }
-.markdown-body h1, .markdown-body h2, .markdown-body h3,
-.markdown-body h4, .markdown-body h5, .markdown-body h6 {
-  margin: 16px 0 8px;
+.markdown-body :deep(h1), .markdown-body :deep(h2), .markdown-body :deep(h3),
+.markdown-body :deep(h4), .markdown-body :deep(h5), .markdown-body :deep(h6) {
+  margin: 20px 0 10px;
   font-weight: 600;
   line-height: 1.4;
   color: #e8e0ff;
 }
-.markdown-body h1 { font-size: 1.5em; border-bottom: 1px solid #3a3a5a; padding-bottom: 8px; }
-.markdown-body h2 { font-size: 1.3em; }
-.markdown-body h3 { font-size: 1.1em; }
-.markdown-body p { margin: 8px 0; }
-.markdown-body ul, .markdown-body ol { margin: 8px 0; padding-left: 24px; }
-.markdown-body li { margin: 4px 0; }
-.markdown-body a { color: #80a0e0; text-decoration: none; }
-.markdown-body a:hover { text-decoration: underline; }
-.markdown-body blockquote {
-  margin: 8px 0;
-  padding: 4px 14px;
+.markdown-body :deep(h1) { font-size: 1.6em; border-bottom: 1px solid #3a3a5a; padding-bottom: 8px; }
+.markdown-body :deep(h2) { font-size: 1.35em; }
+.markdown-body :deep(h3) { font-size: 1.15em; }
+.markdown-body :deep(p) { margin: 10px 0; }
+.markdown-body :deep(ul), .markdown-body :deep(ol) { margin: 10px 0; padding-left: 24px; }
+.markdown-body :deep(li) { margin: 4px 0; }
+.markdown-body :deep(a) { color: #80a0e0; text-decoration: none; }
+.markdown-body :deep(a:hover) { text-decoration: underline; }
+.markdown-body :deep(blockquote) {
+  margin: 10px 0;
+  padding: 6px 16px;
   border-left: 3px solid #5a5a8a;
   background: #1e1e36;
   color: #b0b0d0;
 }
-.markdown-body code {
-  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
-  font-size: 0.9em;
-  padding: 2px 6px;
+
+/* Inline code */
+.markdown-body :deep(code) {
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.85em;
+  padding: 2px 7px;
   border-radius: 4px;
-  background: #2a2a40;
+  background: #2a2a45;
   color: #d0b0ff;
 }
-.markdown-body pre {
-  margin: 12px 0;
+
+/* Code block wrapper */
+.markdown-body :deep(.code-block) {
+  margin: 16px 0;
   border-radius: 8px;
   overflow: hidden;
+  border: 1px solid #3a3a6a;
+  background: #12122a;
 }
-.markdown-body pre code {
-  display: block;
-  padding: 14px 16px;
+
+.markdown-body :deep(.code-header) {
+  display: flex;
+  align-items: center;
+  padding: 6px 14px;
+  background: #1a1a38;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.markdown-body :deep(.code-lang) {
+  font-size: 11px;
+  font-weight: 600;
+  color: #7a7aaa;
+  text-transform: lowercase;
+  letter-spacing: 0.3px;
+}
+
+.markdown-body :deep(.code-block pre) {
+  margin: 0;
   overflow-x: auto;
-  font-size: 13px;
-  line-height: 1.5;
-  background: #1e1e30;
-  color: #c0c0d0;
-  border: 1px solid #2a2a4a;
 }
-.markdown-body table {
+
+.markdown-body :deep(.code-block pre code) {
+  display: block;
+  padding: 16px 18px;
+  font-size: 14px;
+  line-height: 1.6;
+  background: transparent;
+  color: #d0d0e0;
+  border: none;
+}
+
+/* Tables */
+.markdown-body :deep(table) {
   border-collapse: collapse;
-  margin: 12px 0;
+  margin: 16px 0;
   width: 100%;
+  font-size: 14px;
 }
-.markdown-body th, .markdown-body td {
-  border: 1px solid #3a3a5a;
-  padding: 8px 12px;
+.markdown-body :deep(th), .markdown-body :deep(td) {
+  border: 1px solid #3a3a6a;
+  padding: 10px 14px;
   text-align: left;
 }
-.markdown-body th { background: #1e1e38; font-weight: 600; }
-.markdown-body img { max-width: 100%; border-radius: 8px; }
-.markdown-body hr { border: none; border-top: 1px solid #2a2a4a; margin: 16px 0; }
-.markdown-body strong { color: #e8e0f0; }
+.markdown-body :deep(th) {
+  background: #1e1e3a;
+  font-weight: 600;
+  color: #c0b0e0;
+  border-bottom-width: 2px;
+}
+.markdown-body :deep(tbody tr:nth-child(even)) {
+  background: #16162e;
+}
+.markdown-body :deep(tbody tr:hover) {
+  background: #1e1e3e;
+}
+
+.markdown-body :deep(img) { max-width: 100%; border-radius: 8px; }
+.markdown-body :deep(hr) { border: none; border-top: 1px solid #2a2a4a; margin: 20px 0; }
+.markdown-body :deep(strong) { color: #e8e0f0; }
 
 /* highlight.js dark theme overrides */
-.markdown-body :deep(.hljs) { background: #1e1e30; }
+.markdown-body :deep(.hljs) { background: transparent; }
 .markdown-body :deep(.hljs-keyword) { color: #c586c0; }
 .markdown-body :deep(.hljs-string)  { color: #ce9178; }
 .markdown-body :deep(.hljs-comment) { color: #6a9955; }

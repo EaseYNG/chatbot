@@ -32,6 +32,7 @@ class MultiAgentService:
         mode_hint: str | None = None,
         agent_hint: str | None = None,
         return_trace: bool = True,
+        user_id: int | None = None,
     ) -> AsyncIterator[str]:
         try:
             attempt = 0
@@ -188,20 +189,20 @@ class MultiAgentService:
                 "plan_steps": final_state.get("plan_steps", []),
                 "trace": final_state.get("trace", []) if return_trace else [],
             }
-            messages = self._build_serialized_messages(
+            messages = await self._build_serialized_messages(
                 chat_id=chat_id, user_msg=user_msg, answer=final_answer
             )
-            self.history_manager.save_conversation(chat_id, messages=messages, meta=meta)
+            await self.history_manager.save_conversation(chat_id, messages=messages, meta=meta, user_id=user_id)
 
             yield _sse("done", {"thread_id": chat_id, "mode": final_state.get("execution_mode")})
         except Exception as e:
             logger.error("Error in stream_chat: %s", str(e), exc_info=True)
             yield _sse("error", {"message": str(e)})
 
-    def _build_serialized_messages(
+    async def _build_serialized_messages(
         self, *, chat_id: int, user_msg: str, answer: str
     ) -> list[dict]:
-        history = self.history_manager.get(chat_id)
+        history = await self.history_manager.get(chat_id)
         messages = list(history)  # Clone existing history
         messages.append({"role": "human", "content": user_msg})
         if answer:

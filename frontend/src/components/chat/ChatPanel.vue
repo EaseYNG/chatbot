@@ -1,10 +1,7 @@
 <template>
   <div class="chat-panel">
     <div class="chat-header">
-      <span v-if="conversations.activeId" class="chat-title">
-        Thread #{{ conversations.activeId }}
-      </span>
-      <span v-else class="chat-title new-chat">New Conversation</span>
+      <span class="chat-title" :class="{ 'new-chat': !title }">{{ title || 'New Conversation' }}</span>
     </div>
 
     <WorkflowTimeline />
@@ -34,6 +31,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { useChatStore } from '../../stores/chat.js'
 import { useConversationsStore } from '../../stores/conversations.js'
 import MessageList from './MessageList.vue'
@@ -42,6 +40,12 @@ import WorkflowTimeline from './WorkflowTimeline.vue'
 
 const chatStore = useChatStore()
 const conversations = useConversationsStore()
+
+const title = computed(() => {
+  if (!conversations.activeId) return ''
+  const conv = conversations.list.find(c => c.thread_id === conversations.activeId)
+  return conv?.title || 'Chat'
+})
 </script>
 
 <style scoped>

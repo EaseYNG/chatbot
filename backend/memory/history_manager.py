@@ -1,153 +1,176 @@
+from __future__ import annotations
+
 import json
-import os
+import logging
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+from typing import Any
 
+from backend.memory.database import ConversationRow, get_db
 
-class History(BaseModel):
-    """对话历史结构体"""
-    thread_id: int = Field(description="用于 checkpointer 的 thread_id")
-    title: str = ""
-    created_at: str = ""
-    updated_at: str = ""
-    messages: list = Field(default_factory=list, description="对话消息列表")
-    meta: dict = Field(default_factory=dict, description="对话元信息")
+logger = logging.getLogger(__name__)
 
 
 class HistoryManager:
-    """管理对话历史持久化（JSON 文件存储）
+    """Manages conversation history persistence via SQLite.
 
-    数据格式: [{"thread_id": 1, "title": "...", "created_at": "...",
-                "updated_at": "...", "messages": [...]}, ...]
+    Data model mirrors the original JSON schema but stored relationally.
     """
 
-    def __init__(self, file_path: str):
-        self.path = file_path
-        self.history_list = self.load()
-        if not self.history_list:
-            self.current_id = 1
-        else:
-            self.current_id = max(
-                (e.get("thread_id", 0) for e in self.history_list if isinstance(e, dict)),
-                default=0,
-            ) + 1
+    def __init__(self):
+        self.current_id = 1
+        self._max_id_loaded = False
 
-    def _find_index(self, chat_id: int) -> int | None:
-        for i, entry in enumerate(self.history_list):
-            if isinstance(entry, dict) and entry.get("thread_id") == chat_id:
-                return i
-        return None
+    async def _ensure_max_id(self):
+        if self._max_id_loaded:
+            return
+        db = await get_db()
+        row = await db.execute_fetchall("SELECT COALESCE(MAX(thread_id), 0) AS mid FROM conversations")
+        if row:
+            self.current_id = row[0]["mid"] + 1
+        self._max_id_loaded = True
 
-    def load(self) -> list:
-        try:
-            if not os.path.exists(self.path) or os.path.getsize(self.path) == 0:
-                return []
-            with open(self.path, mode="r", encoding="utf-8") as f:
-                content = f.read().strip()
-                if not content:
-                    return []
-                data = json.loads(content)
-                if not isinstance(data, list):
-                    data = []
-        except Exception as e:
-            print(f"Error loading history: {e}")
-            data = []
-        return data
+    async def load(self) -> list[dict]:
+        db = await get_db()
+        rows = await db.execute_fetchall(
+            "SELECT thread_id, title, created_at, updated_at, messages, meta "
+            "FROM conversations ORDER BY updated_at DESC"
+        )
+        return [ConversationRow(r).to_dict() for r in rows]
 
-    def add(self, chat_id: int, msgs: list):
-        """序列化消息并覆盖写入对应对话"""
+    async def add(self, chat_id: int, msgs: list, meta: dict | None = None):
         msg_list = []
         for msg in msgs:
-            one = msg.model_dump()
-            if one["type"] == "system":
+            one = msg.model_dump() if hasattr(msg, "model_dump") else msg
+            if one.get("type") == "system":
                 continue
-            if one["type"] == "tool":
-                msg_list.append(
-                    {
-                        "role": one["type"],
-                        "tool_call_id": one.get("tool_call_id"),
-                        "name": one.get("name"),
-                        "content": one["content"],
-                    }
-                )
-            elif one["type"] == "ai":
-                entry = {"role": one["type"], "content": one["content"]}
-                tool_calls = one.get("tool_calls")
-                if tool_calls:
-                    entry["tool_calls"] = tool_calls
+            if one.get("type") == "tool":
+                msg_list.append({
+                    "role": "tool",
+                    "tool_call_id": one.get("tool_call_id"),
+                    "name": one.get("name"),
+                    "content": one["content"],
+                })
+            elif one.get("type") == "ai":
+                entry = {"role": "ai", "content": one["content"]}
+                if one.get("tool_calls"):
+                    entry["tool_calls"] = one["tool_calls"]
                 msg_list.append(entry)
             else:
                 msg_list.append({"role": one["type"], "content": one["content"]})
-        self.save_conversation(chat_id, messages=msg_list)
+        await self.save_conversation(chat_id, messages=msg_list, meta=meta)
 
-    def save_conversation(self, chat_id: int, messages: list[dict], meta: dict | None = None):
-        """覆盖写入已序列化消息，并可附带对话元信息。"""
+    async def save_conversation(
+        self,
+        chat_id: int,
+        messages: list[dict],
+        meta: dict | None = None,
+        user_id: int | None = None,
+    ):
+        await self._ensure_max_id()
         now = datetime.now(timezone.utc).isoformat()
 
-        # 自动生成标题：取第一条用户消息前 30 字
-        first_user = next((m["content"] for m in messages if m.get("role") in ("human", "user")), None)
-        title = (first_user[:30] + "...") if (first_user and len(first_user) > 30) else (first_user or "New Chat")
+        first_user = next(
+            (m["content"] for m in messages if m.get("role") in ("human", "user")),
+            None,
+        )
+        title = (
+            (first_user[:30] + "...")
+            if first_user and len(first_user) > 30
+            else (first_user or "New Chat")
+        )
 
-        idx = self._find_index(chat_id)
-        if idx is not None:
-            self.history_list[idx]["messages"] = messages
-            self.history_list[idx]["updated_at"] = now
-            if meta is not None:
-                self.history_list[idx]["meta"] = meta
-            # 标题保持不变（首次生成后不覆盖）
+        db = await get_db()
+        existing = await db.execute_fetchall(
+            "SELECT id FROM conversations WHERE thread_id = ? LIMIT 1",
+            (chat_id,),
+        )
+
+        if existing:
+            await db.execute(
+                "UPDATE conversations SET messages = ?, meta = ?, updated_at = ? WHERE thread_id = ?",
+                (
+                    json.dumps(messages, ensure_ascii=False),
+                    json.dumps(meta or {}, ensure_ascii=False) if meta is not None else None,
+                    now,
+                    chat_id,
+                ),
+            )
         else:
-            entry = History(
-                thread_id=chat_id,
-                title=title,
-                created_at=now,
-                updated_at=now,
-                messages=messages,
-                meta=meta or {},
-            ).model_dump()
-            self.history_list.append(entry)
+            await db.execute(
+                "INSERT INTO conversations (thread_id, user_id, title, created_at, updated_at, messages, meta) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    chat_id,
+                    user_id,
+                    title,
+                    now,
+                    now,
+                    json.dumps(messages, ensure_ascii=False),
+                    json.dumps(meta or {}, ensure_ascii=False),
+                ),
+            )
             if chat_id >= self.current_id:
                 self.current_id = chat_id + 1
-        self.update()
+        await db.commit()
 
-    def get(self, chat_id: int) -> list[dict]:
-        idx = self._find_index(chat_id)
-        if idx is None:
+    async def get(self, chat_id: int) -> list[dict]:
+        db = await get_db()
+        rows = await db.execute_fetchall(
+            "SELECT messages FROM conversations WHERE thread_id = ? LIMIT 1",
+            (chat_id,),
+        )
+        if not rows:
             return []
-        return self.history_list[idx].get("messages", [])
+        return ConversationRow(rows[0]).messages
 
-    def get_conversation(self, chat_id: int) -> dict | None:
-        idx = self._find_index(chat_id)
-        if idx is None:
+    async def get_conversation(self, chat_id: int, user_id: int | None = None) -> dict | None:
+        db = await get_db()
+        if user_id is not None:
+            rows = await db.execute_fetchall(
+                "SELECT thread_id, title, created_at, updated_at, messages, meta "
+                "FROM conversations WHERE thread_id = ? AND (user_id = ? OR user_id IS NULL) LIMIT 1",
+                (chat_id, user_id),
+            )
+        else:
+            rows = await db.execute_fetchall(
+                "SELECT thread_id, title, created_at, updated_at, messages, meta "
+                "FROM conversations WHERE thread_id = ? LIMIT 1",
+                (chat_id,),
+            )
+        if not rows:
             return None
-        return self.history_list[idx]
+        return ConversationRow(rows[0]).to_dict()
 
-    def list_all(self) -> list[dict]:
-        """返回所有对话的元信息（不含 messages）"""
+    async def list_all(self, user_id: int | None = None) -> list[dict]:
+        db = await get_db()
+        if user_id is not None:
+            rows = await db.execute_fetchall(
+                "SELECT thread_id, title, created_at, updated_at, messages "
+                "FROM conversations WHERE user_id = ? ORDER BY updated_at DESC",
+                (user_id,),
+            )
+        else:
+            rows = await db.execute_fetchall(
+                "SELECT thread_id, title, created_at, updated_at, messages "
+                "FROM conversations ORDER BY updated_at DESC"
+            )
         result = []
-        for entry in self.history_list:
-            if isinstance(entry, dict):
-                msgs = entry.get("messages", [])
-                result.append(
-                    {
-                        "thread_id": entry.get("thread_id"),
-                        "title": entry.get("title", ""),
-                        "created_at": entry.get("created_at", ""),
-                        "updated_at": entry.get("updated_at", ""),
-                        "message_count": len(msgs),
-                    }
-                )
-        return sorted(result, key=lambda x: x.get("updated_at", ""), reverse=True)
+        for r in rows:
+            cr = ConversationRow(r)
+            result.append({
+                "thread_id": cr.thread_id,
+                "title": cr.title,
+                "created_at": cr.created_at,
+                "updated_at": cr.updated_at,
+                "message_count": len(cr.messages),
+            })
+        return result
 
-    def remove(self, chat_id: int) -> bool:
-        idx = self._find_index(chat_id)
-        if idx is not None:
-            self.history_list.pop(idx)
-            return True
-        return False
-
-    def update(self) -> None:
-        try:
-            with open(self.path, mode="w", encoding="utf-8") as f:
-                json.dump(self.history_list, f, ensure_ascii=False, indent=2)
-        except (OSError, json.JSONDecodeError) as e:
-            print(f"Error saving history: {e}")
+    async def remove(self, chat_id: int) -> bool:
+        db = await get_db()
+        cursor = await db.execute(
+            "DELETE FROM conversations WHERE thread_id = ?",
+            (chat_id,),
+        )
+        await db.commit()
+        return cursor.rowcount > 0

@@ -1,13 +1,37 @@
 const BASE = '/api'
 
+let _tokenGetter = null
+let _onUnauthorized = null
+
+export function setAuthTokenGetter(fn) {
+  _tokenGetter = fn
+}
+
+export function setOnUnauthorized(fn) {
+  _onUnauthorized = fn
+}
+
+async function authHeaders() {
+  const headers = { 'Content-Type': 'application/json' }
+  if (_tokenGetter) {
+    const token = _tokenGetter()
+    if (token) headers['Authorization'] = `Bearer ${token}`
+  }
+  return headers
+}
+
 async function apiFetch(path, options = {}) {
+  const headers = { ...(await authHeaders()), ...options.headers }
   let res
   try {
-    res = await fetch(`${BASE}${path}`, options)
+    res = await fetch(`${BASE}${path}`, { ...options, headers })
   } catch (e) {
     throw new Error(`Network error: ${e.message}`)
   }
   if (!res.ok) {
+    if (res.status === 401 && _onUnauthorized) {
+      _onUnauthorized()
+    }
     const err = await res.json().catch(() => ({ detail: 'Unknown error' }))
     throw new Error(err.detail || `HTTP ${res.status}`)
   }
@@ -30,11 +54,12 @@ export async function deleteConversation(id) {
 }
 
 export async function* streamChat(threadId, message, options = {}) {
+  const headers = await authHeaders()
   let res
   try {
     res = await fetch(`${BASE}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         thread_id: threadId,
         message,
@@ -48,6 +73,9 @@ export async function* streamChat(threadId, message, options = {}) {
   }
 
   if (!res.ok) {
+    if (res.status === 401 && _onUnauthorized) {
+      _onUnauthorized()
+    }
     const err = await res.json().catch(() => ({ detail: 'Unknown error' }))
     throw new Error(err.detail || 'Chat request failed')
   }

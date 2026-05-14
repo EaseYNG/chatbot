@@ -12,5 +12,8 @@ langgraph-checkpoint>=1.0.0
 langgraph-checkpoint-sqlite>=1.0.0
 aiosqlite>=0.20.0
 
+# Auth
+PyJWT>=2.8.0
+
 # Data
 pydantic>=2.7.0

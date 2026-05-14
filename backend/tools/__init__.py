@@ -1,10 +1,10 @@
-from backend.tools.weather import get_weather
-from backend.tools.md_io import MdIO
+from backend.tools.weather import get_weather, recommend_activity
+from backend.tools.io import write, read
 
 
 def get_all_tools() -> list:
     """Return the default tool list. Extend this to add RAG or skill tools."""
-    return [MdIO.to_md, MdIO.read_md, get_weather]
+    return [write, read, get_weather, recommend_activity]
 
 
 def get_tool_registry() -> dict[str, object]:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from backend.multi_agent.enums import ExecutionMode
@@ -8,11 +10,16 @@ from backend.multi_agent.service import MultiAgentService
 
 
 class FakeHistoryManager:
-    def get(self, chat_id: int) -> list[dict]:  # noqa: ARG002
+    async def get(self, chat_id: int) -> list[dict]:  # noqa: ARG002
         return []
 
-    def save_conversation(self, chat_id: int, messages: list[dict], meta: dict | None = None):  # noqa: ARG002
+    async def save_conversation(self, chat_id: int, messages: list[dict], meta: dict | None = None):  # noqa: ARG002
         pass
+
+
+class FakeLLMResponse:
+    def __init__(self, content: str):
+        self.content = content
 
 
 def make_state(**overrides):
@@ -57,17 +64,29 @@ class TestRetryState:
         assert state["execution_mode"] == ExecutionMode.WORKFLOW.value
         assert state["retry_count"] == 0
 
-    def test_retry_respects_downgraded_mode(self):
+    @pytest.mark.asyncio
+    @patch("backend.multi_agent.graph.build_chat_llm")
+    async def test_retry_respects_downgraded_mode(self, mock_llm):
+        mock_instance = AsyncMock()
+        mock_instance.ainvoke.return_value = FakeLLMResponse("not json")
+        mock_llm.return_value = mock_instance
+
         state = make_state(
             execution_mode=ExecutionMode.PLAN_EXECUTE.value,
             retry_count=1,
         )
         assert state["retry_count"] == 1
         graph = MultiAgentGraph(history_manager=FakeHistoryManager())
-        result = graph.complexity_node(state)
+        result = await graph.complexity_node(state)
         assert result["execution_mode"] == ExecutionMode.PLAN_EXECUTE.value
 
-    def test_complexity_does_not_override_hinted_mode(self):
+    @pytest.mark.asyncio
+    @patch("backend.multi_agent.graph.build_chat_llm")
+    async def test_complexity_does_not_override_hinted_mode(self, mock_llm):
+        mock_instance = AsyncMock()
+        mock_instance.ainvoke.return_value = FakeLLMResponse("not json")
+        mock_llm.return_value = mock_instance
+
         state = make_state(
             user_input="请多个 Agent 协作完成这个跨领域对比分析",
             execution_mode=ExecutionMode.PLAN_EXECUTE.value,
@@ -76,7 +95,7 @@ class TestRetryState:
         state["complexity_score"] = 0
         state["retry_count"] = 0
         graph = MultiAgentGraph(history_manager=FakeHistoryManager())
-        result = graph.complexity_node(state)
+        result = await graph.complexity_node(state)
         assert result["execution_mode"] == ExecutionMode.PLAN_EXECUTE.value
 
 

@@ -104,12 +104,13 @@ export const useChatStore = defineStore('chat', () => {
     const isNewConv = !threadId
 
     isStreaming.value = true
+    let pendingAiContent = ''
 
     try {
       for await (const event of streamChat(threadId, text)) {
         switch (event.type) {
           case 'token':
-            appendToLastMessage(event.content || '')
+            pendingAiContent += (event.content || '')
             break
 
           case 'tool_start':
@@ -127,6 +128,9 @@ export const useChatStore = defineStore('chat', () => {
 
           case 'done':
             finishAllStatuses()
+            if (pendingAiContent) {
+              addMessage('ai', pendingAiContent)
+            }
             addWorkflowEvent('done', event)
             if (isNewConv && event.thread_id) {
               convStore.setActiveId(event.thread_id)
@@ -206,8 +210,10 @@ export const useChatStore = defineStore('chat', () => {
       }
     } catch (e) {
       errorMessage.value = e.message
-      if (!messages.value[messages.value.length - 1]?.content) {
-        appendToLastMessage('Error: ' + e.message)
+      if (pendingAiContent) {
+        addMessage('ai', pendingAiContent)
+      } else if (!messages.value[messages.value.length - 1]?.content) {
+        addMessage('ai', 'Error: ' + e.message)
       }
     } finally {
       isStreaming.value = false

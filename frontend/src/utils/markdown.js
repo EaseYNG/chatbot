@@ -1,23 +1,29 @@
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 
+const renderer = {
+  code({ text, lang }) {
+    const langAttr = lang ? ` class="language-${lang}"` : ''
+    let highlighted
+    try {
+      highlighted = lang && hljs.getLanguage(lang)
+        ? hljs.highlight(text, { language: lang }).value
+        : hljs.highlightAuto(text).value
+    } catch {
+      highlighted = text
+    }
+    const label = lang
+      ? `<div class="code-header"><span class="code-lang">${lang}</span></div>`
+      : ''
+    return `<div class="code-block">${label}<pre><code${langAttr}>${highlighted}</code></pre></div>`
+  },
+}
+
+marked.use({ renderer })
+
 marked.setOptions({
   breaks: true,
   gfm: true,
-  highlight(code, lang) {
-    if (lang && hljs.getLanguage(lang)) {
-      try {
-        return hljs.highlight(code, { language: lang }).value
-      } catch {
-        // fall through
-      }
-    }
-    try {
-      return hljs.highlightAuto(code).value
-    } catch {
-      return code
-    }
-  },
 })
 
 export function renderMarkdown(text) {

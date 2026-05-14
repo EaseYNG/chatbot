@@ -1,7 +1,7 @@
 <template>
   <div class="sidebar">
     <div class="sidebar-header">
-      <h2 class="logo">LangChain Chat</h2>
+      <h2 class="logo">ChatBot</h2>
       <button class="btn-new" @click="handleNewChat()">+ New Chat</button>
     </div>
 
@@ -30,6 +30,10 @@
         @delete="handleDelete(conv.thread_id)"
       />
     </div>
+
+    <div class="sidebar-footer">
+      <button class="btn-logout" @click="handleLogout">Logout</button>
+    </div>
   </div>
 </template>
 
@@ -37,10 +41,19 @@
 import { onMounted } from 'vue'
 import { useConversationsStore } from '../../stores/conversations.js'
 import { useChatStore } from '../../stores/chat.js'
+import { useAuthStore } from '../../stores/auth.js'
 import ConversationItem from './ConversationItem.vue'
 
 const conversations = useConversationsStore()
 const chatStore = useChatStore()
+const auth = useAuthStore()
+
+function handleLogout() {
+  auth.clear()
+  chatStore.clearMessages()
+  conversations.list = []
+  conversations.activeId = null
+}
 
 async function handleSelect(id) {
   const prevActiveId = conversations.activeId
@@ -86,10 +99,12 @@ onMounted(() => {
 }
 
 .logo {
-  font-size: 18px;
-  font-weight: 600;
-  color: #e0d0ff;
-  margin-bottom: 12px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #c8b0ff;
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+  text-align: center;
 }
 
 .btn-new {
@@ -159,6 +174,26 @@ onMounted(() => {
   cursor: pointer;
 }
 .btn-retry:hover {
+  background: #4a2828;
+}
+
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid #2a2a4a;
+}
+
+.btn-logout {
+  width: 100%;
+  padding: 8px 16px;
+  border: 1px solid #5a3030;
+  border-radius: 8px;
+  background: #3a2020;
+  color: #e08080;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-logout:hover {
   background: #4a2828;
 }
 </style>

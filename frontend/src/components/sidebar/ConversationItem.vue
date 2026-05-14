@@ -5,7 +5,6 @@
     @click="$emit('select')"
   >
     <div class="conv-title">{{ conv.title || 'New Chat' }}</div>
-    <div class="conv-meta">{{ formatDate(conv.updated_at) }}</div>
     <button
       class="btn-delete"
       title="Delete"
@@ -20,33 +19,24 @@ defineProps({
   isActive: { type: Boolean, default: false },
 })
 defineEmits(['select', 'delete'])
-
-function formatDate(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  const diff = Date.now() - d
-  if (diff < 60000) return 'Just now'
-  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago'
-  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago'
-  return d.toLocaleDateString()
-}
 </script>
 
 <style scoped>
 .conv-item {
   position: relative;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   margin-bottom: 2px;
   transition: background 0.15s;
+  border-left: 3px solid transparent;
 }
 .conv-item:hover {
   background: #1e1e3a;
 }
 .conv-item.active {
-  background: #2a2a5a;
+  background: #25254a;
+  border-left-color: #7a6aff;
 }
 
 .conv-title {
@@ -56,12 +46,7 @@ function formatDate(iso) {
   overflow: hidden;
   text-overflow: ellipsis;
   padding-right: 24px;
-}
-
-.conv-meta {
-  font-size: 11px;
-  color: #666;
-  margin-top: 4px;
+  line-height: 1.4;
 }
 
 .btn-delete {

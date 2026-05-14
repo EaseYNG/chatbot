@@ -9,7 +9,7 @@ from backend.multi_agent.graph import MultiAgentGraph
 
 
 class FakeHistoryManager:
-    def get(self, chat_id: int) -> list[dict]:  # noqa: ARG002
+    async def get(self, chat_id: int) -> list[dict]:  # noqa: ARG002
         return []
 
 
@@ -30,53 +30,104 @@ def make_state(**overrides):
 
 
 class TestComplexityScoring:
-    def test_simple_question_low_score(self):
+    @pytest.mark.asyncio
+    @patch("backend.multi_agent.graph.build_chat_llm")
+    async def test_llm_assess_simple_returns_react(self, mock_llm):
+        mock_instance = AsyncMock()
+        mock_instance.ainvoke.return_value = FakeLLMResponse(
+            '{"score": 15, "mode": "REACT"}'
+        )
+        mock_llm.return_value = mock_instance
+
         state = make_state(user_input="你好")
-        result = MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+        result = await MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+        # LLM score is 15, below REACT threshold of 25, so stays REACT
+        assert result["complexity_score"] <= 30
+        assert result["execution_mode"] == ExecutionMode.REACT.value
+
+    @pytest.mark.asyncio
+    async def test_keyword_fallback(self):
+        state = make_state(user_input="你好")
+        # Force LLM failure by mocking with invalid response
+        with patch("backend.multi_agent.graph.build_chat_llm") as mock_llm:
+            mock_instance = AsyncMock()
+            mock_instance.ainvoke.return_value = FakeLLMResponse("invalid response")
+            mock_llm.return_value = mock_instance
+            result = await MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+
+        # After LLM fails, falls back to keyword scoring: score=10 for simple input
         assert result["complexity_score"] == 10
         assert result["execution_mode"] == ExecutionMode.REACT.value
 
-    def test_tool_keywords_increase_score(self):
-        state = make_state(
-            user_input="readme.md 里写了什么？请读取后总结",
-            required_tools=["read_md"],
-        )
-        result = MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
-        assert result["complexity_score"] >= 20
-
-    def test_step_keywords_add_15(self):
+    @pytest.mark.asyncio
+    async def test_step_keywords_add_score(self):
         state = make_state(user_input="请给我一个详细的步骤和方案")
-        result = MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+        with patch("backend.multi_agent.graph.build_chat_llm") as mock_llm:
+            mock_instance = AsyncMock()
+            mock_instance.ainvoke.return_value = FakeLLMResponse("invalid response")
+            mock_llm.return_value = mock_instance
+            result = await MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+
+        # Keyword fallback: "步骤" + "方案" give score 25, but the keyword check hits once
+        # "步骤" triggers the check and "方案" also matches "步骤", "计划", "方案", "分解"
         assert result["complexity_score"] >= 25
 
-    def test_cross_domain_triggers_workflow(self):
+    @pytest.mark.asyncio
+    async def test_cross_domain_triggers_workflow(self):
         state = make_state(user_input="请多个角度协作对比评估这个多 Agent workflow 方案")
-        result = MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+        with patch("backend.multi_agent.graph.build_chat_llm") as mock_llm:
+            mock_instance = AsyncMock()
+            mock_instance.ainvoke.return_value = FakeLLMResponse("invalid response")
+            mock_llm.return_value = mock_instance
+            result = await MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+
+        # Keyword fallback: multiple keywords give score >= 55
         assert result["complexity_score"] >= 55
         assert result["execution_mode"] == ExecutionMode.WORKFLOW.value
 
-    def test_plan_threshold_triggers_plan_execute(self):
+    @pytest.mark.asyncio
+    async def test_plan_threshold_triggers_plan_execute(self):
         state = make_state(user_input="请按步骤分析这段代码的问题")
-        result = MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+        with patch("backend.multi_agent.graph.build_chat_llm") as mock_llm:
+            mock_instance = AsyncMock()
+            mock_instance.ainvoke.return_value = FakeLLMResponse("invalid response")
+            mock_llm.return_value = mock_instance
+            result = await MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+
+        # Keyword fallback: "步骤" gives score 25
         assert result["complexity_score"] >= 25
         assert result["execution_mode"] == ExecutionMode.PLAN_EXECUTE.value
 
-    def test_mode_hint_respected_on_first_attempt(self):
+    @pytest.mark.asyncio
+    async def test_mode_hint_respected_on_first_attempt(self):
         state = make_state(
             user_input="你好",
             execution_mode=ExecutionMode.PLAN_EXECUTE.value,
             retry_count=0,
         )
-        result = MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+        with patch("backend.multi_agent.graph.build_chat_llm") as mock_llm:
+            mock_instance = AsyncMock()
+            mock_instance.ainvoke.return_value = FakeLLMResponse("invalid response")
+            mock_llm.return_value = mock_instance
+            result = await MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+
+        # Even with keyword fallback (score=10), the hinted mode PLAN_EXECUTE is preserved
         assert result["execution_mode"] == ExecutionMode.PLAN_EXECUTE.value
 
-    def test_mode_hint_not_overridden_on_retry(self):
+    @pytest.mark.asyncio
+    async def test_mode_hint_not_overridden_on_retry(self):
         state = make_state(
             user_input="请多个角度协作对比评估这个多 Agent workflow 方案",
             execution_mode=ExecutionMode.PLAN_EXECUTE.value,
             retry_count=1,
         )
-        result = MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+        with patch("backend.multi_agent.graph.build_chat_llm") as mock_llm:
+            mock_instance = AsyncMock()
+            mock_instance.ainvoke.return_value = FakeLLMResponse("invalid response")
+            mock_llm.return_value = mock_instance
+            result = await MultiAgentGraph(history_manager=FakeHistoryManager()).complexity_node(state)
+
+        # On retry, mode should stay as PLAN_EXECUTE (not overridden)
         assert result["execution_mode"] == ExecutionMode.PLAN_EXECUTE.value
 
 

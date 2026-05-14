@@ -5,7 +5,7 @@ AGENT_REGISTRY: dict[str, dict] = {
     "general": {
         "label": "General Agent",
         "intent": IntentType.GENERAL.value,
-        "tools": ["get_weather", "read_md"],
+        "tools": ["get_weather", "read", "recommend_activity"],
         "system_prompt": (
             "You are the general-purpose agent in a multi-agent system. "
             "Answer clearly, stay concise, and use tools only when needed."
@@ -14,7 +14,7 @@ AGENT_REGISTRY: dict[str, dict] = {
     "coding": {
         "label": "Coding Agent",
         "intent": IntentType.CODING.value,
-        "tools": ["read_md", "to_md"],
+        "tools": ["read", "write"],
         "system_prompt": (
             "You are the coding specialist in a multi-agent system. "
             "Focus on architecture, implementation details, debugging, and code quality."
@@ -23,7 +23,7 @@ AGENT_REGISTRY: dict[str, dict] = {
     "writing": {
         "label": "Writing Agent",
         "intent": IntentType.WRITING.value,
-        "tools": ["read_md", "to_md"],
+        "tools": ["read", "write"],
         "system_prompt": (
             "You are the writing specialist in a multi-agent system. "
             "Produce clear, well-structured, reader-friendly content."
@@ -32,7 +32,7 @@ AGENT_REGISTRY: dict[str, dict] = {
     "analysis": {
         "label": "Analysis Agent",
         "intent": IntentType.ANALYSIS.value,
-        "tools": ["read_md"],
+        "tools": ["read"],
         "system_prompt": (
             "You are the analysis specialist in a multi-agent system. "
             "Break down problems, compare options, and explain trade-offs."

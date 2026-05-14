@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
 from typing import Optional
+
+from pydantic import BaseModel, Field
 
 
 class MessageDict(BaseModel):
@@ -11,8 +12,8 @@ class MessageDict(BaseModel):
 
 class ChatRequest(BaseModel):
     thread_id: Optional[int] = None
-    message: str
-    system_message: str = "You are a helpful assistant."
+    message: str = Field(min_length=1, max_length=16000)
+    system_message: str = Field(default="You are a helpful assistant.", max_length=4000)
     mode_hint: Optional[str] = None
     agent_hint: Optional[str] = None
     return_trace: bool = True

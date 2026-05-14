@@ -1,8 +1,8 @@
 <template>
   <div class="message-list" ref="listRef">
     <div v-if="messages.length === 0" class="list-empty">
-      <div class="empty-icon">&#9995;</div>
-      <p>Start a conversation</p>
+      <div class="empty-logo">ChatBot</div>
+      <p class="empty-hint">Type a message to start a conversation</p>
     </div>
     <MessageItem
       v-for="(msg, idx) in messages"
@@ -63,10 +63,19 @@ watch(
   justify-content: center;
   height: 100%;
   color: #555;
-  gap: 12px;
+  gap: 16px;
+  user-select: none;
 }
 
-.empty-icon {
-  font-size: 48px;
+.empty-logo {
+  font-size: 36px;
+  font-weight: 700;
+  color: #3a3a6a;
+  letter-spacing: 2px;
+}
+
+.empty-hint {
+  font-size: 14px;
+  color: #555;
 }
 </style>

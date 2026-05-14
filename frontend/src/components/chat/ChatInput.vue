@@ -76,8 +76,8 @@ function doSend() {
   display: flex;
   gap: 8px;
   align-items: flex-end;
-  max-width: 800px;
-  margin: 0 auto;
+  max-width: 900px;
+  margin: 0 48px;
 }
 
 .input-field {

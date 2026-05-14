@@ -1,88 +1,235 @@
-# LangChain Chatbot
+# ChatBot — 多 Agent 智能对话助手
 
-基于 `FastAPI + LangChain + LangGraph + DeepSeek + Vue 3` 的全栈智能对话助手，当前已从单 Agent 架构开始演进为“可观测的多 Agent 工作流”版本。
+基于 `FastAPI + LangGraph + DeepSeek + Vue 3` 的全栈多 Agent 对话系统，支持动态复杂度评估、多模式执行编排、JWT 认证与速率限制。
 
-## 当前状态
+---
 
-当前仓库已经具备以下能力：
+## 技术栈
 
-- 单一 `/api/chat` 入口
-- 自动复杂度评估与执行模式路由
-- 三种执行模式：`REACT` / `PLAN_EXECUTE` / `WORKFLOW`
-- 4 类专业 Agent：`general` / `coding` / `writing` / `analysis`
-- SSE 流式返回过程事件与最终回答
-- 对话历史持久化，并记录多 Agent 元信息
+| 层级 | 技术 |
+|------|------|
+| 后端框架 | FastAPI (Python 3.11+) |
+| 编排框架 | LangGraph (StateGraph DAG) |
+| LLM | DeepSeek Chat API |
+| Agent 框架 | LangChain (`create_agent`) |
+| 数据库 | SQLite (aiosqlite) |
+| 认证 | JWT (PyJWT, PBKDF2-HMAC-SHA256) |
+| 前端 | Vue 3 + Vite 5 + Pinia |
+| Markdown 渲染 | marked + highlight.js |
+| 测试 | pytest |
 
-多 Agent 实施方案文档见 `files/multi-agent.md`，阶段成果记录见 `files/multi-agent-progress.md`。
+---
 
-## 项目结构
+## 项目概述
 
-```text
+### 项目结构
+
+```
 ├── backend/
-│   ├── config.py                  # 集中配置（API Key、路径、常量）
+│   ├── config.py                  # 集中配置
 │   ├── main.py                    # uvicorn 启动入口
-│   ├── cli.py                     # 旧 CLI 模式（仍可用）
 │   ├── agent/
-│   │   ├── chatbot.py             # 旧单 Agent 封装
-│   │   ├── llm_factory.py         # 统一 DeepSeek LLM 工厂
-│   │   └── streaming.py           # 旧 SSE 转换器
+│   │   ├── chatbot.py             # 旧 ChatBot 封装（仅 restore_state）
+│   │   └── llm_factory.py         # DeepSeek LLM 工厂
 │   ├── api/
 │   │   ├── dependencies.py        # 依赖注入工厂
-│   │   ├── routes.py              # FastAPI 路由
-│   │   └── server.py              # FastAPI app 工厂 + CORS
+│   │   ├── routes.py              # 对话/会话路由
+│   │   └── server.py              # FastAPI app 工厂
+│   ├── auth/                      # JWT 认证模块
+│   │   ├── middleware.py          # get_current_user / optional_user
+│   │   ├── models.py              # 请求/响应模型
+│   │   └── routes.py              # register / login / refresh
 │   ├── memory/
-│   │   ├── history_manager.py     # 对话与元信息持久化
-│   │   └── checkpointer.py        # LangGraph MemorySaver 封装
+│   │   ├── database.py            # SQLite 连接管理 + 建表
+│   │   └── history_manager.py     # 对话持久化
+│   ├── middleware/
+│   │   └── rate_limit.py          # 用户级滑动窗口限流
 │   ├── models/
-│   │   └── schemas.py             # 请求/响应模型
-│   ├── multi_agent/
-│   │   ├── __init__.py
+│   │   └── schemas.py             # Pydantic 模型 + 输入校验
+│   ├── multi_agent/               # 多 Agent 编排核心
 │   │   ├── enums.py               # 阶段/模式/意图枚举
-│   │   ├── state.py               # OrchestratorState
-│   │   ├── registry.py            # 专业 Agent 注册表
-│   │   ├── graph.py               # 多 Agent Orchestrator 图
-│   │   └── service.py             # 多 Agent 服务层 + SSE 输出
+│   │   ├── state.py               # OrchestratorState + PlanStep
+│   │   ├── registry.py            # Agent 注册表
+│   │   ├── graph.py               # DAG 编排图
+│   │   └── service.py             # SSE 流式服务层
 │   └── tools/
-│       ├── __init__.py            # 工具注册与按名称筛选
-│       ├── weather.py             # 天气查询工具
-│       └── md_io.py               # Markdown 文件读写工具
+│       ├── __init__.py            # 工具注册
+│       ├── weather.py             # 天气查询
+│       └── md_io.py               # Markdown 文件读写
 ├── frontend/
 │   └── src/
-│       ├── api/client.js          # SSE 流式客户端
-│       ├── stores/chat.js         # 聊天状态与工作流事件展示
-│       ├── stores/conversations.js
-│       └── components/
-├── files/                         # Markdown 文件与设计文档
-├── memory/                        # 对话历史 JSON 存储
-├── .env                           # 环境变量（需自行创建）
-└── requirements.txt               # Python 依赖
+│       ├── api/client.js          # SSE 客户端 + Auth 拦截
+│       ├── stores/                # Pinia 状态管理
+│       │   ├── auth.js            # JWT 管理 + 401 自动登出
+│       │   ├── chat.js            # 对话流 + 工作流事件
+│       │   └── conversations.js   # 会话 CRUD
+│       ├── views/                 # Login / Register
+│       ├── components/
+│       │   ├── layout/            # ChatLayout
+│       │   ├── chat/              # 消息列表 / 输入框 / 工作流时间线
+│       │   └── sidebar/           # 会话列表
+│       └── utils/markdown.js      # Markdown + 代码高亮渲染
+├── tests/                         # 63 个测试用例
+└── memory/                        # SQLite 数据库文件
 ```
+
+---
+
+### 架构总览
+
+```
+用户请求
+    │
+    ▼
+┌─────────────────────────────────────────────────┐
+│            FastAPI Server (uvicorn)              │
+│  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
+│  │ Auth     │  │ Rate     │  │ Multi-Agent   │  │
+│  │ (JWT)    │  │ Limiter  │  │ Orchestrator  │  │
+│  └──────────┘  └──────────┘  └───────┬───────┘  │
+└─────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+                          ┌─────────────────────┐
+                          │  LangGraph DAG      │
+                          │                     │
+                          │  INIT → INPUT       │
+                          │    → COMPLEXITY     │
+                          │    → ROUTE          │
+                          │    → EXECUTION      │
+                          │    → OUTPUT         │
+                          │    → QUALITY → END  │
+                          └─────────────────────┘
+                                       │
+                          ┌────────────┼────────────┐
+                          ▼            ▼            ▼
+                    ┌────────┐ ┌──────────┐ ┌──────────┐
+                    │ REACT  │ │PLAN_EXEC │ │ WORKFLOW │
+                    └────────┘ └──────────┘ └──────────┘
+                          │         │            │
+                          ▼         ▼            ▼
+                    ┌───────────────────────────────┐
+                    │  4 个专业 Agent               │
+                    │  general / coding / writing   │
+                    │  / analysis + 3 个工具         │
+                    └───────────────────────────────┘
+```
+
+### 核心特性
+
+- **三级执行模式**：REACT（单步直接回答）、PLAN_EXECUTE（计划分解顺序执行）、WORKFLOW（跨 Agent 协作）
+- **LLM 质量评估**：完整性/准确性/清晰度三维评分，< 60 分触发自动降级重试
+- **流式输出**：基于 SSE 的 15 种事件类型实时推送（token、阶段、路由、Agent、工具等）
+- **JWT 认证**：Access + Refresh Token 双令牌机制，Refresh Token 轮换
+- **用户隔离**：对话数据按 user_id 隔离，请求级速率限制
+- **前端工作流可视化**：实时展示阶段进度条、Agent 状态、质量评分
+
+---
+
+## 关键业务逻辑实现
+
+### 1. 多 Agent 编排引擎
+
+核心在 `backend/multi_agent/graph.py` 的 `MultiAgentGraph`，基于 LangGraph 的 `StateGraph` 构建。
+
+**7 个节点 + 条件边**：
+
+```
+INIT ─→ INPUT ─→ COMPLEXITY ─→ ROUTE ─→ REACT ┬─→ OUTPUT ─→ QUALITY ─→ END
+                                           ├─→ PLAN_EXECUTE ┘
+                                           └─→ WORKFLOW ┘
+```
+
+每个节点接收 `OrchestratorState`（TypedDict），返回 state diff，由 LangGraph 自动合并。
+
+**执行模式选择逻辑**：
+
+```
+                    REACT          PLAN_EXECUTE      WORKFLOW
+                    (10-24)         (25-54)          (55-100)
+                    ┌──────┐       ┌──────────┐     ┌──────────┐
+复杂性评分 ──────── │ 单步 │ ────→ │ 分解步骤 │ ──→ │ 多Agent  │
+                    │ 直接回答 │    │ 顺序执行 │    │ 协作执行  │
+                    └──────┘       └──────────┘     └──────────┘
+```
+
+### 2. 上下文管理
+
+- 对话历史以 JSON 数组存储在 SQLite `conversations.messages` 列
+- 每次请求从 DB 读取全量历史，取最近 10 条拼成文本注入 System Prompt
+- 多步骤模式下，WORKFLOW 模式通过 `prior_outputs` 在步骤间传递上下文
+- 执行完成后将新消息（human + ai）追加回 SQLite
+
+**注意**：当前历史以纯文本而非结构化消息数组传递给 LLM，属于已知可优化项。
+
+### 3. 质量评估与降级重试
+
+```python
+quality_node → LLM 评分（completeness/accuracy/clarity）
+    ↓
+score < 60 → service 层 _downgrade_mode()
+    ↓
+WORKFLOW → PLAN_EXECUTE → REACT → 仍失败则返回最终结果
+    ↓
+score >= 60 → 保存历史，返回 done 事件
+```
+
+### 4. JWT 认证
+
+| 端点 | 功能 | Token 类型 |
+|------|------|-----------|
+| `POST /api/auth/register` | 注册 | 返回 access + refresh |
+| `POST /api/auth/login` | 登录 | 返回 access + refresh |
+| `POST /api/auth/refresh` | 刷新令牌 | 旧 refresh 被轮换 |
+| `GET /api/auth/me` | 当前用户信息 | 需 access token |
+
+- Access Token 有效期 30 分钟，Refresh Token 7 天
+- 密码使用 PBKDF2-HMAC-SHA256（10 万次迭代）加盐哈希
+- Refresh Token 使用哈希值存储，支持轮换和撤销
+- Token 过期自动触发前端登出
+
+### 5. 专业 Agent 注册表
+
+`backend/multi_agent/registry.py` 定义了 4 个 Agent：
+
+| Agent | 领域 | 可用工具 |
+|-------|------|---------|
+| general | 通用问答 | get_weather, read_md |
+| coding | 编程与架构 | read_md, to_md |
+| writing | 内容写作 | read_md, to_md |
+| analysis | 分析与评估 | read_md |
+
+Agent 实例使用 `_agent_cache`（module-level dict）按 `(name, streaming, tools)` 缓存，避免重复编译。
+
+---
 
 ## 快速开始
 
-### 1. 配置 API Key
+### 环境要求
+
+- Python 3.11+
+- Node.js 18+
+- DeepSeek API Key
+
+### 配置
 
 在项目根目录创建 `.env`：
 
 ```env
 DEEPSEEK_API_KEY=sk-your-key-here
+JWT_SECRET=your-jwt-secret-change-me
 ```
 
-### 2. 安装后端依赖
+### 启动后端
 
 ```bash
 pip install -r requirements.txt
-```
-
-### 3. 启动后端
-
-```bash
 python -m backend.main
 ```
 
-服务默认启动在 `http://localhost:8000`，API 文档在 `http://localhost:8000/docs`。
+服务启动在 `http://localhost:8000`，API 文档在 `http://localhost:8000/docs`。
 
-### 4. 启动前端
+### 启动前端
 
 ```bash
 cd frontend
@@ -90,167 +237,42 @@ npm install
 npm run dev
 ```
 
-前端默认地址为 `http://localhost:5173`，通过 Vite 代理自动转发 `/api` 到后端。
+前端地址 `http://localhost:5173`，通过 Vite 代理转发 `/api` 到后端。
 
-### 5. CLI 模式（可选）
+### 测试
 
 ```bash
-python backend/cli.py
+pytest tests/ -v    # 63 个测试用例
 ```
 
-说明：CLI 当前仍走旧单 Agent 封装，Web API 已接入新的多 Agent 服务层。
-
-## 多 Agent 执行模式
-
-### `REACT`
-
-- 用于简单问答和轻量工具调用
-- 单次调用一个专业 Agent 直接给出结果
-
-### `PLAN_EXECUTE`
-
-- 用于多步骤但单领域主导的任务
-- 先生成计划，再按步骤顺序执行
-
-### `WORKFLOW`
-
-- 用于跨领域协作任务
-- 由 Orchestrator 生成多 Agent 步骤并汇总输出
+---
 
 ## API 文档
 
-### `POST /api/chat`
+### 认证
 
-流式对话接口，返回 `text/event-stream`。
-
-**请求体：**
-
-```json
-{
-  "thread_id": null,
-  "message": "请给我一个多 Agent 实现方案",
-  "system_message": "You are a helpful assistant.",
-  "mode_hint": null,
-  "agent_hint": null,
-  "return_trace": true
-}
+```
+POST /api/auth/register   { username, password } → { access_token, refresh_token }
+POST /api/auth/login      { username, password } → { access_token, refresh_token }
+POST /api/auth/refresh    { refresh_token }      → { access_token, refresh_token }
+GET  /api/auth/me         [Auth]                 → { id, username, created_at }
 ```
 
-字段说明：
+### 对话（需 Bearer Token）
 
-- `thread_id`：`null` 表示创建新会话
-- `message`：用户输入
-- `system_message`：系统提示词
-- `mode_hint`：可选，支持 `REACT` / `PLAN_EXECUTE` / `WORKFLOW`
-- `agent_hint`：可选，支持 `general` / `coding` / `writing` / `analysis`
-- `return_trace`：是否返回阶段事件
+```
+POST   /api/chat              → SSE stream (15 种事件类型)
+GET    /api/conversations     → 会话列表
+GET    /api/conversations/{id} → 会话详情（含消息）
+DELETE /api/conversations/{id} → 删除会话
+```
 
-**SSE 事件类型：**
+### 速率限制
 
-| 事件 | 数据结构示例 | 说明 |
-|------|--------------|------|
-| `stage_start` | `{"stage":"INPUT","label":"输入分析"}` | 某阶段开始 |
-| `stage_end` | `{"stage":"INPUT","label":"输入分析"}` | 某阶段结束 |
-| `route` | `{"mode":"PLAN_EXECUTE","agent":"coding","score":35}` | 路由结果 |
-| `plan` | `{"steps":[...]}` | 计划或工作流步骤 |
-| `step_start` | `{"step_id":"s1","title":"Analyze","agent":"coding"}` | 步骤开始 |
-| `step_end` | `{"step_id":"s1","title":"Analyze","agent":"coding"}` | 步骤结束 |
-| `agent_start` | `{"agent":"coding","label":"Coding Agent"}` | 专业 Agent 开始 |
-| `agent_end` | `{"agent":"coding","label":"Coding Agent"}` | 专业 Agent 结束 |
-| `quality` | `{"score":85,"passed":true}` | 质量评估 |
-| `warning` | `{"message":"..."}` | 降级或重试提示 |
-| `token` | `{"content":"..."}` | 最终回答的流式片段 |
-| `done` | `{"thread_id":1,"mode":"PLAN_EXECUTE"}` | 本次执行结束 |
-| `error` | `{"message":"..."}` | 错误信息 |
+基于用户的滑动窗口算法，默认每分钟 30 次，超限返回 `429 Too Many Requests`。
 
-### `GET /api/conversations`
+---
 
-获取会话列表。
+## License
 
-### `GET /api/conversations/{id}`
-
-获取单条会话详情，当前返回：
-
-- `messages`
-- `meta`
-
-其中 `meta` 会记录：
-
-- `run_id`
-- `execution_mode`
-- `selected_agent`
-- `quality_score`
-- `intent`
-- `plan_steps`
-- `trace`
-
-### `DELETE /api/conversations/{id}`
-
-删除指定会话。
-
-## 当前实现进度
-
-### 阶段一：多 Agent 基础设施
-
-已完成：
-
-- 抽出统一 LLM 工厂 `backend/agent/llm_factory.py`
-- 新增 `backend/multi_agent/` 目录
-- 新增状态模型、枚举、Agent 注册表
-- 工具层支持按名称筛选
-
-### 阶段二：Orchestrator 路由与执行
-
-已完成：
-
-- 多 Agent 图 `backend/multi_agent/graph.py`
-- 输入分析、复杂度评估、执行模式路由
-- `REACT` / `PLAN_EXECUTE` / `WORKFLOW` 三种模式
-- 最小质量评估与降级重试
-
-### 阶段三：SSE 与前端兼容
-
-已完成：
-
-- `/api/chat` 已切换到 `MultiAgentService`
-- SSE 新增阶段、计划、Agent、质量事件
-- 前端 `chat store` 已能展示基本过程提示
-
-### 阶段四：持久化与文档
-
-已完成：
-
-- 对话历史增加 `meta`
-- 记录执行模式、质量分、计划步骤、事件轨迹
-- 更新 `README.md`
-- 新增阶段成果记录文档
-
-## 扩展指南
-
-### 添加新工具
-
-在 `backend/tools/` 下新增工具后，注册到 `get_all_tools()` 中；如果要限制给特定 Agent，再在 `backend/multi_agent/registry.py` 中配置工具白名单。
-
-### 添加新专业 Agent
-
-在 `backend/multi_agent/registry.py` 中新增条目，至少配置：
-
-- `label`
-- `intent`
-- `tools`
-- `system_prompt`
-
-### 下一步建议
-
-建议优先继续以下工作：
-
-- 将 `workflow` 计划器改为严格 schema 校验
-- 为前端增加专门的工作流时间线组件
-- 引入可持久化的 checkpointer
-- 为多 Agent 路由与降级增加自动化测试
-
-## 技术栈
-
-- 后端：Python 3.11+ / FastAPI / LangChain / LangGraph / DeepSeek
-- 前端：Vue 3 / Vite 5 / Pinia
-- 持久化：JSON 文件 + LangGraph MemorySaver
+MIT
